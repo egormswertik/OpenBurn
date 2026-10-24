@@ -23,6 +23,11 @@ def main():
     serve_parser.add_argument("--port", type=int, default=8080, help="Port to listen on")
     serve_parser.add_argument("--bind", default="127.0.0.1", help="Address to bind to")
 
+    # gui
+    gui_parser = subparsers.add_parser("gui", help="Launch interactive OpenBurn Web GUI")
+    gui_parser.add_argument("--port", type=int, default=8080, help="Port to listen on")
+    gui_parser.add_argument("--bind", default="127.0.0.1", help="Address to bind to")
+
     args = parser.parse_args()
 
     if args.command == "compile":
@@ -48,6 +53,13 @@ def main():
         print(f"Compiled {filepath} -> {args.output}")
 
     elif args.command == "serve":
+        run_server(port=args.port, bind=args.bind)
+    elif args.command == "gui":
+        import webbrowser
+        import threading
+        url = f"http://{args.bind}:{args.port}"
+        print(f"Launching OpenBurn GUI at {url}")
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
         run_server(port=args.port, bind=args.bind)
     else:
         parser.print_help()
