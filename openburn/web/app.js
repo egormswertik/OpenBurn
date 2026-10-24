@@ -627,6 +627,170 @@ function initSSE() {
   });
 }
 
+// Generators & Modals logic
+let laserFireActive = false;
+
+window.toggleGeneratorsMenu = function() {
+  const menu = document.getElementById("generatorsDropdown");
+  menu.style.display = menu.style.display === "block" ? "none" : "block";
+};
+
+document.addEventListener("click", (e) => {
+  const menu = document.getElementById("generatorsDropdown");
+  if (menu && !e.target.closest(".dropdown")) {
+    menu.style.display = "none";
+  }
+});
+
+window.closeModals = function() {
+  document.querySelectorAll(".modal-backdrop").forEach(m => m.style.display = "none");
+};
+
+window.openMaterialTestDialog = function() {
+  document.getElementById("generatorsDropdown").style.display = "none";
+  document.getElementById("materialTestModal").style.display = "flex";
+};
+
+window.submitMaterialTest = async function() {
+  const min_power = document.getElementById("matMinPower").value;
+  const max_power = document.getElementById("matMaxPower").value;
+  const p_steps = document.getElementById("matPSteps").value;
+  const min_speed = document.getElementById("matMinSpeed").value;
+  const max_speed = document.getElementById("matMaxSpeed").value;
+  const s_steps = document.getElementById("matSSteps").value;
+  const mode = document.getElementById("matMode").value;
+
+  const res = await fetch("/api/tools/material-test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ min_power, max_power, p_steps, min_speed, max_speed, s_steps, mode })
+  });
+  if (res.ok) {
+    closeModals();
+    await loadProjectFromServer();
+  }
+};
+
+window.openFocusTestDialog = function() {
+  document.getElementById("generatorsDropdown").style.display = "none";
+  document.getElementById("focusTestModal").style.display = "flex";
+};
+
+window.submitFocusTest = async function() {
+  const min_z = document.getElementById("focMinZ").value;
+  const max_z = document.getElementById("focMaxZ").value;
+  const steps = document.getElementById("focSteps").value;
+
+  const res = await fetch("/api/tools/focus-test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ min_z, max_z, steps })
+  });
+  if (res.ok) {
+    closeModals();
+    await loadProjectFromServer();
+  }
+};
+
+window.openGridArrayDialog = function() {
+  document.getElementById("generatorsDropdown").style.display = "none";
+  document.getElementById("gridArrayModal").style.display = "flex";
+};
+
+window.submitGridArray = async function() {
+  const rows = document.getElementById("arrayRows").value;
+  const cols = document.getElementById("arrayCols").value;
+  const dx = document.getElementById("arrayDx").value;
+  const dy = document.getElementById("arrayDy").value;
+
+  const res = await fetch("/api/tools/array/grid", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows, cols, dx, dy })
+  });
+  if (res.ok) {
+    closeModals();
+    await loadProjectFromServer();
+  }
+};
+
+window.openCircularArrayDialog = function() {
+  document.getElementById("generatorsDropdown").style.display = "none";
+  document.getElementById("circularArrayModal").style.display = "flex";
+};
+
+window.submitCircularArray = async function() {
+  const count = document.getElementById("circCount").value;
+  const radius = document.getElementById("circRadius").value;
+  const rotate = document.getElementById("circRotate").value;
+
+  const res = await fetch("/api/tools/array/circular", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count, radius, rotate })
+  });
+  if (res.ok) {
+    closeModals();
+    await loadProjectFromServer();
+  }
+};
+
+window.toggleLaserFire = async function() {
+  laserFireActive = !laserFireActive;
+  const btn = document.getElementById("btnFireLaser");
+  if (laserFireActive) {
+    btn.style.background = "#e63946";
+    btn.style.color = "#fff";
+    btn.textContent = "🔥 LASER ON (2%)";
+    await fetch("/api/laser/fire", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: 2.0, enable: true })
+    });
+  } else {
+    btn.style.background = "#4a121a";
+    btn.style.color = "#ff9999";
+    btn.textContent = "🔥 Laser Fire (2%)";
+    await fetch("/api/laser/fire", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enable: false })
+    });
+  }
+};
+
+window.saveProjectFile = function() {
+  window.open("/api/file/download?format=lbrn2", "_blank");
+};
+
+// Console Terminal
+window.executeConsoleInput = function() {
+  const input = document.getElementById("consoleInput");
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  sendConsoleCommand(cmd);
+  input.value = "";
+};
+
+window.sendConsoleCommand = async function(cmd) {
+  const log = document.getElementById("consoleLog");
+  log.textContent += `> ${cmd}\n`;
+  log.scrollTop = log.scrollHeight;
+
+  const res = await fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command: cmd })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    if (data.reply) {
+      log.textContent += `< ${data.reply}\n`;
+      log.scrollTop = log.scrollHeight;
+    }
+  }
+};
+
 // Tool Selection
 window.setTool = function(tool) {
   state.activeTool = tool;

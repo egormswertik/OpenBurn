@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenBurn Core - Laser CAM</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2.2.1">
 </head>
 <body>
 
@@ -17,15 +17,37 @@
     </div>
 
     <div class="top-actions">
-      <label class="btn-top" style="cursor:pointer;">
+      <label class="btn-top" style="cursor:pointer;" title="Open project or import SVG">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Open / Import
+        Open
         <input type="file" id="fileInput" accept=".lbrn,.lbrn2,.svg" style="display:none;">
       </label>
 
-      <button class="btn-top" id="btnPreview">
+      <button class="btn-top" id="btnSaveProj" onclick="saveProjectFile()" title="Save project as .lbrn2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save
+      </button>
+
+      <div class="dropdown" style="position:relative; display:inline-block;">
+        <button class="btn-top" onclick="toggleGeneratorsMenu()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Generators ▾
+        </button>
+        <div id="generatorsDropdown" class="dropdown-menu" style="display:none; position:absolute; top:100%; left:0; background:#282830; border:1px solid #3b3b48; border-radius:4px; min-width:180px; z-index:500; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+          <div class="dropdown-item" onclick="openMaterialTestDialog()">Material Test Grid</div>
+          <div class="dropdown-item" onclick="openFocusTestDialog()">Focus Test Lines (Z)</div>
+          <div class="dropdown-item" onclick="openGridArrayDialog()">Grid Array (Duplicate)</div>
+          <div class="dropdown-item" onclick="openCircularArrayDialog()">Circular Array (Radial)</div>
+        </div>
+      </div>
+
+      <button class="btn-top" id="btnPreview" title="Simulate and inspect G-Code">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        Preview G-Code
+        Preview
+      </button>
+
+      <button class="btn-top" id="btnFireLaser" onclick="toggleLaserFire()" style="background:#4a121a; border-color:#801b2a; color:#ff9999;" title="Laser sighting test pulse">
+        🔥 Laser Fire (2%)
       </button>
 
       <div class="device-badge">
@@ -161,6 +183,25 @@
         </div>
       </div>
 
+      <!-- CONSOLE / TERMINAL DOCK -->
+      <div class="panel" style="flex:1; display:flex; flex-direction:column; min-height:160px;">
+        <div class="panel-header" style="display:flex; justify-content:space-between;">
+          <span>GRBL Console</span>
+          <div style="display:flex; gap:4px;">
+            <button class="jog-step-btn" style="padding:1px 6px;" onclick="sendConsoleCommand('?')">?</button>
+            <button class="jog-step-btn" style="padding:1px 6px;" onclick="sendConsoleCommand('$X')">$X</button>
+            <button class="jog-step-btn" style="padding:1px 6px;" onclick="sendConsoleCommand('$$')">$$</button>
+          </div>
+        </div>
+        <div class="panel-body" style="flex:1; display:flex; flex-direction:column; padding:6px; gap:6px;">
+          <div id="consoleLog" style="flex:1; height:100px; background:#141418; border:1px solid #333; border-radius:3px; padding:4px; font-family:monospace; font-size:10px; color:#aaa; overflow-y:auto; white-space:pre-wrap;"></div>
+          <div style="display:flex; gap:4px;">
+            <input type="text" id="consoleInput" placeholder="Command (e.g. G0 X10 Y10)..." style="flex:1; background:#18181c; border:1px solid #3b3b48; color:#fff; padding:4px 6px; font-size:11px; border-radius:3px;" onkeydown="if(event.key==='Enter') executeConsoleInput()">
+            <button class="btn-top" onclick="executeConsoleInput()" style="padding:4px 8px;">Send</button>
+          </div>
+        </div>
+      </div>
+
     </aside>
   </main>
 
@@ -186,6 +227,137 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <!-- MATERIAL TEST MODAL -->
+  <div class="modal-backdrop" id="materialTestModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span>Material Test Generator (Calibration Matrix)</span>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>Power Range (%):</label>
+          <div style="display:flex; gap:6px; width:140px;">
+            <input type="number" id="matMinPower" value="10" style="width:65px;">
+            <input type="number" id="matMaxPower" value="100" style="width:65px;">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Power Steps (Cols):</label>
+          <input type="number" id="matPSteps" value="5">
+        </div>
+        <div class="form-row">
+          <label>Speed Range (mm/min):</label>
+          <div style="display:flex; gap:6px; width:140px;">
+            <input type="number" id="matMinSpeed" value="500" style="width:65px;">
+            <input type="number" id="matMaxSpeed" value="3000" style="width:65px;">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Speed Steps (Rows):</label>
+          <input type="number" id="matSSteps" value="5">
+        </div>
+        <div class="form-row">
+          <label>Mode:</label>
+          <select id="matMode">
+            <option value="Scan">Scan (Engraving)</option>
+            <option value="Cut">Cut (Outline)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-top" onclick="closeModals()">Cancel</button>
+        <button class="btn-top" onclick="submitMaterialTest()" style="background:#007acc; color:#fff;">Generate Matrix</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOCUS TEST MODAL -->
+  <div class="modal-backdrop" id="focusTestModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span>Focus Test Generator (Z Height)</span>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>Z Height Range (mm):</label>
+          <div style="display:flex; gap:6px; width:140px;">
+            <input type="number" id="focMinZ" value="0" style="width:65px;">
+            <input type="number" id="focMaxZ" value="10" style="width:65px;">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Line Steps:</label>
+          <input type="number" id="focSteps" value="10">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-top" onclick="closeModals()">Cancel</button>
+        <button class="btn-top" onclick="submitFocusTest()" style="background:#007acc; color:#fff;">Generate Focus Test</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GRID ARRAY MODAL -->
+  <div class="modal-backdrop" id="gridArrayModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span>Grid Array (Multiply Shapes)</span>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>Rows (Y):</label>
+          <input type="number" id="arrayRows" value="3">
+        </div>
+        <div class="form-row">
+          <label>Columns (X):</label>
+          <input type="number" id="arrayCols" value="3">
+        </div>
+        <div class="form-row">
+          <label>X Spacing (mm):</label>
+          <input type="number" id="arrayDx" value="25">
+        </div>
+        <div class="form-row">
+          <label>Y Spacing (mm):</label>
+          <input type="number" id="arrayDy" value="25">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-top" onclick="closeModals()">Cancel</button>
+        <button class="btn-top" onclick="submitGridArray()" style="background:#007acc; color:#fff;">Duplicate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CIRCULAR ARRAY MODAL -->
+  <div class="modal-backdrop" id="circularArrayModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span>Circular Radial Array</span>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>Copies Count:</label>
+          <input type="number" id="circCount" value="8">
+        </div>
+        <div class="form-row">
+          <label>Radius (mm):</label>
+          <input type="number" id="circRadius" value="50">
+        </div>
+        <div class="form-row">
+          <label>Rotate Shapes:</label>
+          <select id="circRotate">
+            <option value="1">Yes (Rotate with angle)</option>
+            <option value="0">No (Keep upright)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-top" onclick="closeModals()">Cancel</button>
+        <button class="btn-top" onclick="submitCircularArray()" style="background:#007acc; color:#fff;">Create Radial Array</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=2.2.1"></script>
 </body>
 </html>

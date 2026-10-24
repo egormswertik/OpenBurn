@@ -16,6 +16,7 @@ from .geometry import XForm
 from .svg import import_svg
 from .gcode import compile_project
 from .serial_driver import GrblSerial, get_available_ports
+from .generators import generate_material_test, generate_focus_test, create_grid_array, create_circular_array
 
 class DeviceState:
     # # impl-defined: ID-003 Device state with real serial support
@@ -130,6 +131,16 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
                 "shapes": shapes_data,
                 "cut_settings": settings_data
             })
+        elif path == "/api/file/download":
+            p = DEVICE.current_project or Project()
+            xml_content = serialize_lbrn2(p)
+            data_bytes = xml_content.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Disposition", 'attachment; filename="project.lbrn2"')
+            self.send_header("Content-Length", str(len(data_bytes)))
+            self.end_headers()
+            self.wfile.write(data_bytes)
         elif path == "/api/profile":
             self.send_json(200, DEVICE.profile.to_dict())
         elif path == "/api/events":
@@ -261,6 +272,85 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self.send_api_error(500, f"Compilation failed: {str(e)}")
+
+        elif path == "/api/command":
+            cmd = data.get("command", "")
+            DEVICE.serial.send_line(cmd)
+            self.send_json(200, {"success": True, "command": cmd})
+
+        elif path == "/api/laser/fire":
+            pwr = float(data.get("power", 2.0)) # 1-5% for sighting
+            state_pwr = int(pwr * 10) # 0..1000 scale
+            enable = bool(data.get("enable", False))
+            if enable:
+                DEVICE.serial.send_line(f"M3 S{state_pwr}")
+            else:
+                DEVICE.serial.send_line("M5")
+            self.send_json(200, {"success": True, "fire": enable})
+
+        elif path == "/api/laser/frame":
+            # Compute project bounding box
+            min_x, min_y = 1e9, 1e9
+            max_x, max_y = -1e9, -1e9
+            for s in DEVICE.current_project.shapes:
+                cx = s.xform.m[4]
+                cy = s.xform.m[5]
+                w = s.props.get("W", s.props.get("Rx", 10) * 2)
+                h = s.props.get("H", s.props.get("Ry", 10) * 2)
+                min_x = min(min_x, cx - w/2)
+                max_x = max(max_x, cx + w/2)
+                min_y = min(min_y, cy - h/2)
+                max_y = max(max_y, cy + h/2)
+            if min_x > max_x:
+                self.send_api_error(400, "Empty project")
+                return
+            # Run rectangular perimeter in background
+            def run_frame():
+                spd = 2000
+                DEVICE.serial.send_line(f"G0 X{min_x:.2f} Y{min_y:.2f} F{spd}")
+                DEVICE.serial.send_line(f"G1 X{max_x:.2f} Y{min_y:.2f} F{spd}")
+                DEVICE.serial.send_line(f"G1 X{max_x:.2f} Y{max_y:.2f} F{spd}")
+                DEVICE.serial.send_line(f"G1 X{min_x:.2f} Y{max_y:.2f} F{spd}")
+                DEVICE.serial.send_line(f"G1 X{min_x:.2f} Y{min_y:.2f} F{spd}")
+            threading.Thread(target=run_frame, daemon=True).start()
+            self.send_json(200, {"success": True, "bounds": [min_x, min_y, max_x, max_y]})
+
+        elif path == "/api/tools/material-test":
+            DEVICE.current_project = generate_material_test(
+                min_power=float(data.get("min_power", 10)),
+                max_power=float(data.get("max_power", 100)),
+                p_steps=int(data.get("p_steps", 5)),
+                min_speed=float(data.get("min_speed", 500)),
+                max_speed=float(data.get("max_speed", 3000)),
+                s_steps=int(data.get("s_steps", 5)),
+                mode=data.get("mode", "Scan")
+            )
+            self.send_json(200, {"success": True, "shapes_count": len(DEVICE.current_project.shapes)})
+
+        elif path == "/api/tools/focus-test":
+            DEVICE.current_project = generate_focus_test(
+                min_z=float(data.get("min_z", 0.0)),
+                max_z=float(data.get("max_z", 10.0)),
+                steps=int(data.get("steps", 10))
+            )
+            self.send_json(200, {"success": True, "shapes_count": len(DEVICE.current_project.shapes)})
+
+        elif path == "/api/tools/array/grid":
+            rows = int(data.get("rows", 3))
+            cols = int(data.get("cols", 3))
+            dx = float(data.get("dx", 20.0))
+            dy = float(data.get("dy", 20.0))
+            DEVICE.current_project.shapes = create_grid_array(DEVICE.current_project.shapes, rows, cols, dx, dy)
+            self.send_json(200, {"success": True, "shapes_count": len(DEVICE.current_project.shapes)})
+
+        elif path == "/api/tools/array/circular":
+            count = int(data.get("count", 8))
+            cx = float(data.get("cx", 100.0))
+            cy = float(data.get("cy", 100.0))
+            radius = float(data.get("radius", 50.0))
+            rot = bool(data.get("rotate", True))
+            DEVICE.current_project.shapes = create_circular_array(DEVICE.current_project.shapes, count, cx, cy, radius, rot)
+            self.send_json(200, {"success": True, "shapes_count": len(DEVICE.current_project.shapes)})
 
         elif path == "/api/device/connect":
             port = data.get("port")
