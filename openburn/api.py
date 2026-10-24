@@ -17,6 +17,8 @@ from .svg import import_svg
 from .gcode import compile_project
 from .serial_driver import GrblSerial, get_available_ports
 from .generators import generate_material_test, generate_focus_test, create_grid_array, create_circular_array
+from .font import text_to_vector_shapes
+from .vector_ops import offset_polygon, add_tabs_to_contour, join_open_paths
 
 class DeviceState:
     # # impl-defined: ID-003 Device state with real serial support
@@ -279,14 +281,18 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(200, {"success": True, "command": cmd})
 
         elif path == "/api/laser/fire":
-            pwr = float(data.get("power", 2.0)) # 1-5% for sighting
-            state_pwr = int(pwr * 10) # 0..1000 scale
+            pwr = float(data.get("power", 2.0)) # Percentage 0..100
+            max_s = float(DEVICE.profile.max_power) if DEVICE.profile and DEVICE.profile.max_power else 1000.0
+            state_pwr = max(1, int((pwr / 100.0) * max_s))
             enable = bool(data.get("enable", False))
             if enable:
+                # In GRBL laser mode ($32=1), stationary beam requires G1 modal state and M3 (constant power)
+                DEVICE.serial.send_line("G1 F100")
                 DEVICE.serial.send_line(f"M3 S{state_pwr}")
             else:
                 DEVICE.serial.send_line("M5")
-            self.send_json(200, {"success": True, "fire": enable})
+                DEVICE.serial.send_line("G0")
+            self.send_json(200, {"success": True, "fire": enable, "power": pwr, "pwm": state_pwr})
 
         elif path == "/api/laser/frame":
             # Compute project bounding box
@@ -351,6 +357,54 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
             rot = bool(data.get("rotate", True))
             DEVICE.current_project.shapes = create_circular_array(DEVICE.current_project.shapes, count, cx, cy, radius, rot)
             self.send_json(200, {"success": True, "shapes_count": len(DEVICE.current_project.shapes)})
+
+        elif path == "/api/tools/text":
+            text = str(data.get("text", "OpenBurn"))
+            x = float(data.get("x", 20.0))
+            y = float(data.get("y", 20.0))
+            h = float(data.get("height", 12.0))
+            layer = int(data.get("layer", 0))
+            text_shapes = text_to_vector_shapes(text, x=x, y=y, height=h, cut_index=layer)
+            if not DEVICE.current_project:
+                DEVICE.current_project = Project()
+            DEVICE.current_project.shapes.extend(text_shapes)
+            self.send_json(200, {"success": True, "added_shapes": len(text_shapes)})
+
+        elif path == "/api/tools/offset":
+            delta = float(data.get("delta", 2.0)) # Outset > 0, Inset < 0
+            count = 0
+            for s in DEVICE.current_project.shapes:
+                if s.type == "Polygon" and "points" in s.props:
+                    s.props["points"] = offset_polygon(s.props["points"], delta)
+                    count += 1
+                elif s.type == "Path" and "points" in s.props and len(s.props["points"]) >= 3:
+                    s.props["points"] = offset_polygon(s.props["points"], delta)
+                    count += 1
+            self.send_json(200, {"success": True, "modified": count})
+
+        elif path == "/api/tools/tabs":
+            tab_size = float(data.get("tab_size", 1.0))
+            tab_count = int(data.get("tab_count", 4))
+            new_shapes = []
+            for s in DEVICE.current_project.shapes:
+                pts = s.props.get("points", [])
+                if (s.type in ("Polygon", "Path")) and len(pts) >= 3:
+                    subpaths = add_tabs_to_contour(pts, tab_size=tab_size, tab_count=tab_count)
+                    for sp in subpaths:
+                        new_shapes.append(Shape("Path", cut_index=s.cut_index, xform=s.xform, points=sp))
+                else:
+                    new_shapes.append(s)
+            DEVICE.current_project.shapes = new_shapes
+            self.send_json(200, {"success": True, "shapes_count": len(new_shapes)})
+
+        elif path == "/api/tools/weld":
+            # Auto-join open paths
+            paths = [s.props["points"] for s in DEVICE.current_project.shapes if s.type == "Path" and "points" in s.props]
+            non_paths = [s for s in DEVICE.current_project.shapes if not (s.type == "Path" and "points" in s.props)]
+            joined = join_open_paths(paths, tol=float(data.get("tolerance", 0.1)))
+            new_shapes = non_paths + [Shape("Path", cut_index=0, xform=XForm(), points=p) for p in joined]
+            DEVICE.current_project.shapes = new_shapes
+            self.send_json(200, {"success": True, "joined_paths": len(joined)})
 
         elif path == "/api/device/connect":
             port = data.get("port")

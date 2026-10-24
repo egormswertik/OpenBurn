@@ -48,6 +48,13 @@ All test vectors (geometry, raster, overscan, REST API) can be verified via:
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
+## Clean-Room Engineering Methodology
+
+OpenBurn was developed strictly following clean-room engineering methodology:
+1. **Architectural Separation:** Functional requirements, data schemas (`.lbrn`, `.lbrn2`), laser motion dynamics, and protocol semantics were formally specified prior to implementation based purely on observable system behavior and open mathematical models.
+2. **Clean Implementation:** The entire codebase, mathematical kernels (affine transforms, de Casteljau curves, ray-casting scanlines, dithering algorithms), and hardware drivers were written from scratch with zero proprietary code, zero external libraries, and zero copied assets.
+3. **Open Standards:** Adheres to open GRBL motion standards, SVG specifications, and standard web technologies.
+
 ## Architecture
 
 - `openburn/geometry.py`: Affine transformations, 2D primitives (Rect, Ellipse, Path, Bezier curves).

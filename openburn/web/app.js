@@ -719,6 +719,76 @@ window.openCircularArrayDialog = function() {
   document.getElementById("circularArrayModal").style.display = "flex";
 };
 
+window.openTextDialog = function() {
+  document.getElementById("textModal").style.display = "flex";
+};
+
+window.submitTextCreation = async function() {
+  const text = document.getElementById("textInputVal").value;
+  const height = document.getElementById("textHeightVal").value;
+  const x = document.getElementById("textXVal").value;
+  const y = document.getElementById("textYVal").value;
+
+  const res = await fetch("/api/tools/text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, height, x, y, layer: state.activeLayer })
+  });
+  if (res.ok) {
+    closeModals();
+    await loadProjectFromServer();
+  }
+};
+
+window.openOffsetDialog = function() {
+  document.getElementById("generatorsDropdown").style.display = "none";
+  document.getElementById("offsetModal").style.display = "flex";
+};
+
+window.submitOffset = async function() {
+  const delta = document.getElementById("offsetDeltaVal").value;
+  const res = await fetch("/api/tools/offset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ delta })
+  });
+  if (res.ok) {
+    closeModals();
+    await loadProjectFromServer();
+  }
+};
+
+window.openTabsDialog = function() {
+  document.getElementById("generatorsDropdown").style.display = "none";
+  document.getElementById("tabsModal").style.display = "flex";
+};
+
+window.submitTabs = async function() {
+  const tab_size = document.getElementById("tabSizeVal").value;
+  const tab_count = document.getElementById("tabCountVal").value;
+  const res = await fetch("/api/tools/tabs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tab_size, tab_count })
+  });
+  if (res.ok) {
+    closeModals();
+    await loadProjectFromServer();
+  }
+};
+
+window.executeAutoWeld = async function() {
+  document.getElementById("generatorsDropdown").style.display = "none";
+  const res = await fetch("/api/tools/weld", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tolerance: 0.1 })
+  });
+  if (res.ok) {
+    await loadProjectFromServer();
+  }
+};
+
 window.submitCircularArray = async function() {
   const count = document.getElementById("circCount").value;
   const radius = document.getElementById("circRadius").value;
