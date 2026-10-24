@@ -492,7 +492,19 @@ async function loadProjectFromServer() {
 
 // Laser Controls
 async function deviceConnect() {
-  const port = prompt("Enter Serial Port or Network IP:", "COM3");
+  let defaultPort = "COM6";
+  try {
+    const pRes = await fetch("/api/device/ports");
+    if (pRes.ok) {
+      const pData = await pRes.json();
+      if (pData.ports && pData.ports.length > 0) {
+        const usbPort = pData.ports.find(p => p.description.includes("CH340") || p.description.includes("USB"));
+        defaultPort = usbPort ? usbPort.port : pData.ports[0].port;
+      }
+    }
+  } catch(e) {}
+
+  const port = prompt("Enter Serial Port:", defaultPort);
   if (!port) return;
   const res = await fetch("/api/device/connect", {
     method: "POST",
@@ -503,6 +515,9 @@ async function deviceConnect() {
     state.device.connected = true;
     state.device.state = "Idle";
     updateDeviceHUD();
+  } else {
+    const err = await res.json();
+    alert(`Connection failed: ${err.message}`);
   }
 }
 

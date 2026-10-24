@@ -15,9 +15,10 @@ from .project import Project, Shape, CutSetting
 from .geometry import XForm
 from .svg import import_svg
 from .gcode import compile_project
+from .serial_driver import GrblSerial, get_available_ports
 
 class DeviceState:
-    # # impl-defined: ID-003 Virtual device state
+    # # impl-defined: ID-003 Device state with real serial support
     def __init__(self):
         self.connected = False
         self.state = "Disconnected" # Idle, Run, Hold, Alarm, Disconnected
@@ -30,6 +31,8 @@ class DeviceState:
         self.head_y = 0.0
         self.active_token = secrets.token_hex(16)
         self.listeners = [] # SSE listener queues
+        self.serial = GrblSerial()
+        self.serial.on_log_callback = lambda msg: self.emit_event("log", {"line": msg})
 
     def emit_event(self, event_type, data):
         payload = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
@@ -110,6 +113,9 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
                 "x": DEVICE.head_x,
                 "y": DEVICE.head_y
             })
+        elif path == "/api/device/ports":
+            ports = get_available_ports()
+            self.send_json(200, {"ports": ports})
         elif path == "/api/project":
             p = DEVICE.current_project or Project()
             shapes_data = []
@@ -258,7 +264,13 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
 
         elif path == "/api/device/connect":
             port = data.get("port")
-            baud = data.get("baudrate", 115200)
+            baud = int(data.get("baudrate", 115200))
+            if port and port != "sim":
+                try:
+                    DEVICE.serial.connect(port, baud)
+                except Exception as e:
+                    self.send_api_error(500, f"Cannot connect to {port}: {str(e)}")
+                    return
             DEVICE.connected = True
             DEVICE.port = port
             DEVICE.baudrate = baud
@@ -267,6 +279,7 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(200, {"connected": True, "port": port})
 
         elif path == "/api/device/disconnect":
+            DEVICE.serial.disconnect()
             DEVICE.connected = False
             DEVICE.state = "Disconnected"
             DEVICE.emit_event("state_changed", {"state": DEVICE.state})
@@ -275,21 +288,26 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/jog":
             dx = float(data.get("x", 0.0))
             dy = float(data.get("y", 0.0))
+            feed = float(data.get("feed", 2000.0))
             DEVICE.head_x = max(0.0, min(DEVICE.profile.bed_width, DEVICE.head_x + dx))
             DEVICE.head_y = max(0.0, min(DEVICE.profile.bed_height, DEVICE.head_y + dy))
+            DEVICE.serial.jog(dx, dy, feed=feed)
             DEVICE.emit_event("position", {"x": DEVICE.head_x, "y": DEVICE.head_y})
             self.send_json(200, {"success": True, "x": DEVICE.head_x, "y": DEVICE.head_y})
 
         elif path == "/api/jog/stop":
+            DEVICE.serial.send_line("\x85") # GRBL jog cancel realtime byte
             self.send_json(200, {"success": True, "jogging": False})
 
         elif path == "/api/home":
             DEVICE.head_x = 0.0
             DEVICE.head_y = 0.0
+            DEVICE.serial.home()
             DEVICE.emit_event("position", {"x": 0.0, "y": 0.0})
             self.send_json(200, {"success": True, "homed": True})
 
         elif path == "/api/zero":
+            DEVICE.serial.zero()
             self.send_json(200, {"success": True, "zeroed": True})
 
         elif path == "/api/job/start":
@@ -301,27 +319,41 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
                 return
             DEVICE.state = "Run"
             DEVICE.emit_event("state_changed", {"state": "Run"})
-            # Simulating execution progress
-            def run_sim():
-                time.sleep(0.1)
-                DEVICE.emit_event("job_progress", {"progress": 100})
+
+            gcode_lines = compile_project(DEVICE.current_project, DEVICE.profile).splitlines()
+
+            def stream_gcode_worker():
+                total = len(gcode_lines)
+                for i, line in enumerate(gcode_lines):
+                    if DEVICE.state != "Run" and DEVICE.state != "Hold":
+                        break
+                    while DEVICE.state == "Hold":
+                        time.sleep(0.1)
+                    DEVICE.serial.send_line(line)
+                    if i % 10 == 0 or i == total - 1:
+                        DEVICE.emit_event("job_progress", {"progress": int((i + 1) / total * 100)})
+                    time.sleep(0.002)
                 DEVICE.state = "Idle"
                 DEVICE.emit_event("state_changed", {"state": "Idle"})
                 DEVICE.emit_event("job_completed", {"success": True})
-            threading.Thread(target=run_sim, daemon=True).start()
+
+            threading.Thread(target=stream_gcode_worker, daemon=True).start()
             self.send_json(200, {"started": True})
 
         elif path == "/api/job/pause":
             action = data.get("action", "pause")
             if action == "pause":
                 DEVICE.state = "Hold"
+                DEVICE.serial.send_line("!") # GRBL feed hold
             else:
                 DEVICE.state = "Run"
+                DEVICE.serial.send_line("~") # GRBL cycle start / resume
             DEVICE.emit_event("state_changed", {"state": DEVICE.state})
             self.send_json(200, {"action": action, "state": DEVICE.state})
 
         elif path == "/api/job/stop":
             DEVICE.state = "Idle"
+            DEVICE.serial.send_line("\x18") # GRBL soft-reset
             DEVICE.emit_event("state_changed", {"state": "Idle"})
             self.send_json(200, {"stopped": True})
 
