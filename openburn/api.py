@@ -458,7 +458,7 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
             if not DEVICE.connected:
                 self.send_api_error(409, "Device not connected")
                 return
-            if not DEVICE.current_project:
+            if not DEVICE.current_project or not DEVICE.current_project.shapes:
                 self.send_api_error(400, "No project loaded")
                 return
             DEVICE.state = "Run"
@@ -468,21 +468,31 @@ class OpenBurnRequestHandler(http.server.BaseHTTPRequestHandler):
 
             def stream_gcode_worker():
                 total = len(gcode_lines)
+                # Ensure GRBL is unlocked and ready
+                if DEVICE.serial.is_connected:
+                    DEVICE.serial.send_line("$X")
+                    DEVICE.serial.send_line("$32=1")
+
                 for i, line in enumerate(gcode_lines):
                     if DEVICE.state != "Run" and DEVICE.state != "Hold":
                         break
                     while DEVICE.state == "Hold":
                         time.sleep(0.1)
-                    DEVICE.serial.send_line(line)
+
+                    if DEVICE.serial.is_connected:
+                        DEVICE.serial.stream_line_wait_ok(line, timeout=10.0)
+                    else:
+                        time.sleep(0.01) # Simulated mode timing
+
                     if i % 10 == 0 or i == total - 1:
                         DEVICE.emit_event("job_progress", {"progress": int((i + 1) / total * 100)})
-                    time.sleep(0.002)
+
                 DEVICE.state = "Idle"
                 DEVICE.emit_event("state_changed", {"state": "Idle"})
                 DEVICE.emit_event("job_completed", {"success": True})
 
             threading.Thread(target=stream_gcode_worker, daemon=True).start()
-            self.send_json(200, {"started": True})
+            self.send_json(200, {"started": True, "lines_count": len(gcode_lines)})
 
         elif path == "/api/job/pause":
             action = data.get("action", "pause")

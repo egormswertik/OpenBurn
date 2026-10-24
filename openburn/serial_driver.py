@@ -27,6 +27,7 @@ class GrblSerial:
         self.lock = threading.Lock()
         self.rx_thread = None
         self.stop_event = threading.Event()
+        self.ok_event = threading.Event()
         self.on_state_callback = None
         self.on_log_callback = None
 
@@ -40,11 +41,14 @@ class GrblSerial:
             self.baudrate = baudrate
             self.is_connected = True
             self.stop_event.clear()
+            self.ok_event.clear()
 
             # Wake up GRBL: reset controller
             self.ser.write(b"\r\n\r\n")
             time.sleep(1.0)
             self.ser.reset_input_buffer()
+            # Send unlock in case GRBL started in Alarm lock
+            self.ser.write(b"$X\n")
 
         self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self.rx_thread.start()
@@ -73,6 +77,21 @@ class GrblSerial:
                 self.on_log_callback(f"> {clean}")
             return True
 
+    def stream_line_wait_ok(self, line, timeout=5.0):
+        """Sends line and waits for 'ok' or 'error' acknowledgment from GRBL."""
+        if not self.is_connected or not self.ser:
+            return False
+        clean = line.strip()
+        if not clean or clean.startswith(";"):
+            return True
+        self.ok_event.clear()
+        with self.lock:
+            self.ser.write((clean + "\n").encode("utf-8"))
+            if self.on_log_callback:
+                self.on_log_callback(f"> {clean}")
+        # Wait for ok with timeout
+        return self.ok_event.wait(timeout)
+
     def jog(self, dx, dy, feed=1000):
         # GRBL Jog syntax
         cmd = f"$J=G91 G21 X{dx:g} Y{dy:g} F{feed:g}"
@@ -95,6 +114,8 @@ class GrblSerial:
                         line, buf = buf.split("\n", 1)
                         line = line.strip()
                         if line:
+                            if line == "ok" or line.startswith("error:") or line.startswith("ALARM:"):
+                                self.ok_event.set()
                             if self.on_log_callback:
                                 self.on_log_callback(f"< {line}")
                 else:

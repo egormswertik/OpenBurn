@@ -522,6 +522,12 @@ async function deviceConnect() {
 }
 
 async function startJob() {
+  await syncProjectToServer();
+  if (!state.device.connected) {
+    // Attempt automatic connection if not already connected
+    await deviceConnect();
+    if (!state.device.connected) return;
+  }
   const res = await fetch("/api/job/start", { method: "POST" });
   if (!res.ok) {
     const err = await res.json();
